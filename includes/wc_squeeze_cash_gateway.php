@@ -78,7 +78,8 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 
 
 	public function payment_fields() {
-
+		global $woocommerce;
+		do_action( 'woocommerce_credit_card_form_start', $this->id );
 		echo'
 			<div class="squeeze-container">
 			  	<div class="squeeze-merchant">
@@ -94,12 +95,11 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 			        <img src=" '.plugins_url('../assets/logo.svg', __FILE__). ' " alt="squeeze cash logo" />
 			        <p class="squeeze-logo-cost__cost">
 			         <span><img src=" '.plugins_url('../assets/shopping_cart.svg', __FILE__). ' " alt="cart icon" /></span> 
-			         '.$_COOKIE['merchant_currency'].' 
-			          $100.00
+			          '.$_COOKIE['merchant_currency'].$woocommerce->cart->get_cart_total().'
 			     	</p>
 			     </div>
       			<h2>Pay with Squeeze Cash</h2>
-		      	<form method="POST" class="squeeze-checkout-form" action="" novalidate>
+		      	<div class="squeeze-checkout-form"  >
 			        <div class="squeeze-checkout-form__field-group">
 			          <label for="squeeze-user-id">Squeeze User ID</label>
 			          <input
@@ -130,9 +130,9 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 			          By paying via a merchant’s website, you agree to Squeeze Cash’s Terms
 			          of Use and Privacy Policy.
 			        </p>
-			    
-		      	</form>
+		      	</div>
     		</div>';
+		do_action( 'woocommerce_credit_card_form_end', $this->id );
 	}
 	public function add_squeeze_checkout_css(){
 		wp_register_style('squeeze-cash-css', plugin_dir_url(__FILE__) .'../styles/styles.css');
@@ -160,11 +160,8 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 		);
 
 		wp_localize_script('squeeze-cash-js', 'squeezeCashAjax', [
-			'ajaxUrl' => admin_url('admin-ajax.php'),
 			'merchantId' => $this->squeeze_merchant_id,
 			'accessToken' => $this->squeeze_access_token,
-			'authMerchantUrl' => 'https://us-central1-squeeze-a69e9.cloudfunctions.net/authenticateMerchant',
-			'nonce' => wp_create_nonce('squeeze_cash_nonce')
 		]);
 
 		wp_enqueue_script('squeeze-cash-js');
@@ -172,20 +169,68 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 
 	public function process_payment( $order_id ) {
 		global $woocommerce;
-		$order = new WC_Order( $order_id );
 
-		$order->payment_complete();
+		$squeeze_user_id = '';
+		$squeeze_user_pin = '';
 
-		$order->add_order_note( 'Hey, your order is paid! Thank you!', true );
+		if('squeeze_cash' === $_POST['payment_method'] && !isset($_POST['squeeze-user-id']) || empty($_POST['squeeze-user-id'])  ){
+			wc_add_notice('Error: Please enter your Squeeze Cash ID', 'error');
+		}else{
+			$squeeze_user_id = $_POST['squeeze-user-id'];
+		}
 
-		// Remove cart
-		$woocommerce->cart->empty_cart();
+		if('squeeze_cash' === $_POST['payment_method'] && !isset($_POST['squeeze-user-pin']) || empty($_POST['squeeze-user-pin'])  ){
+			wc_add_notice('Error: Please enter your Squeeze Cash Pin', 'error');
+		}else{
+			$squeeze_user_pin = $_POST['squeeze-user-pin'];
+		}
 
-		// Return thankyou redirect
-		return array(
-			'result' => 'success',
-			'redirect' => $this->get_return_url( $order )
+
+		$order = wc_get_order( $order_id );
+
+		$url = 'https://us-central1-squeeze-a69e9.cloudfunctions.net/makePayment';
+
+		$arg_data = array(
+			'userSqueeze' => $squeeze_user_id,
+			'merchantSqueeze' => $this->squeeze_merchant_id,
+			'accessToken' => $this->squeeze_access_token,
+			'userPin' => $squeeze_user_pin,
+			'amount' => '1',
+		    'reason' => 'Squeeze Payment'
 		);
+
+		$data = json_encode($arg_data);
+
+		$args = array(
+			'headers' => array('Content-Type' => 'text/plain','Access-Control-Allow-Origin' =>'*'),
+			'body' => $data);
+
+		$response = wp_remote_post($url, $args);
+
+		if(!is_wp_error( $response )){
+			$response_body = wp_remote_retrieve_body($response);
+
+			$response_body = json_decode($response_body);
+
+			if($response_body->type == 'error'){
+				wc_add_notice($response_body->message, 'error');
+			}else{
+				$order->payment_complete();
+
+				$order->add_order_note( 'Your order has been received. Thank You!', true );
+
+				// Remove cart
+				$woocommerce->cart->empty_cart();
+
+				// Return thankyou redirect
+				return array(
+					'result' => 'success',
+					'redirect' => $this->get_return_url( $order )
+				);
+			}
+
+		}
+
 	}
 
 
@@ -209,10 +254,15 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 
 		$response_body = json_decode($response_body);
 
-		setcookie('merchant_name', $response_body->response->merchantName, time() + (86400 * 30), "/");
-		setcookie('merchant_picture', $response_body->response->picture, time() + (86400 * 30), "/");
-		setcookie('merchant_currency', $response_body->response->currency, time() + (86400 * 30), "/");
+		if($response_body->errorCode == 0){
+			setcookie('merchant_name', $response_body->response->merchantName, time() + (86400 * 30), "/");
+			setcookie('merchant_picture', $response_body->response->picture, time() + (86400 * 30), "/");
+			setcookie('merchant_currency', $response_body->response->currency, time() + (86400 * 30), "/");
+		}else{
+			WC_Admin_Settings::add_error('Error: Failed to authenticate your merchant account, please try again.  ');
+		}
+
 	}
 
-
 }
+

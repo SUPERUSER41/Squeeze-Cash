@@ -22,13 +22,13 @@
 }
 
 .squeeze-merchant__image {
-    border-radius: 50%;
     display: inline-block;
     height: 75px;
     width: 75px;
 }
 
 .squeeze-merchant__image img {
+    border-radius: 50%;
     max-height: none !important;
     width: 100%;
     height: 100%;
