@@ -15,7 +15,7 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 		//Define custom fields on checkout
 		$this->has_fields = false;
 		//Define title of plugin (this will display in woocommerce settings)
-		$this->method_title = __('Squeeze Pay', 'squeeze-cash');
+		$this->method_title = __('Squeeze Cash', 'squeeze-cash');
 		//Define description of plugin (this will display in woocommerce settings)
 		$this->method_description = __('Accept payments with squeeze cash.', 'squeeze-cash');
 
@@ -139,6 +139,7 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 		wp_enqueue_style('squeeze-cash-css');
 	}
 	public function add_squeeze_checkout_js(){
+
 		if ( ! is_cart() && ! is_checkout() && ! isset( $_GET['pay_for_order'] ) ) {
 			return;
 		}
@@ -150,6 +151,29 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 		// no reason to enqueue JavaScript if API keys are not set
 		if ( empty( $this->squeeze_merchant_id ) || empty( $this->squeeze_access_token ) ) {
 			return;
+		}
+
+		$url = 'https://us-central1-squeeze-a69e9.cloudfunctions.net/authenticateMerchant';
+
+		$arg_data = array('squeezeId' => $this->squeeze_merchant_id,'accessToken' => $this->squeeze_access_token);
+
+		$data = json_encode($arg_data);
+
+		$args = array(
+			'headers' => array('Content-Type' => 'text/plain','Access-Control-Allow-Origin' =>'*'),
+			'body' => $data);
+
+		$response = wp_remote_post($url, $args);
+
+		$response_body = wp_remote_retrieve_body($response);
+
+		$response_body = json_decode($response_body);
+
+		if($response_body->errorCode == 0){
+			setcookie('merchant_name', $response_body->response->merchantName, time() + (86400 * 30), "/");
+			setcookie('merchant_picture', $response_body->response->picture, time() + (86400 * 30), "/");
+			setcookie('merchant_currency', $response_body->response->currency, time() + (86400 * 30), "/");
+			WC_Admin_Settings::add_message('Successfully authenticated with Squeeze Cash.');
 		}
 		wp_register_script (
 			'squeeze-cash-js',
@@ -255,9 +279,7 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 		$response_body = json_decode($response_body);
 
 		if($response_body->errorCode == 0){
-			setcookie('merchant_name', $response_body->response->merchantName, time() + (86400 * 30), "/");
-			setcookie('merchant_picture', $response_body->response->picture, time() + (86400 * 30), "/");
-			setcookie('merchant_currency', $response_body->response->currency, time() + (86400 * 30), "/");
+			WC_Admin_Settings::add_message('Successfully authenticated with Squeeze Cash.');
 		}else{
 			WC_Admin_Settings::add_error('Error: Failed to authenticate your merchant account, please try again.  ');
 		}
