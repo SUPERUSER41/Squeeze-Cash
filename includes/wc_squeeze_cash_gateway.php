@@ -149,9 +149,9 @@ class WC_Squeeze_Cash_Gateway extends WC_Payment_Gateway {
 		}
 
 		// no reason to enqueue JavaScript if API keys are not set
-		// if ( empty( $this->squeeze_merchant_id ) || empty( $this->squeeze_access_token ) ) {
-		// 	return;
-		// }
+		if ( empty( $this->squeeze_merchant_id ) || empty( $this->squeeze_access_token ) ) {
+			return;
+		}
 
 		$url = 'https://us-central1-squeeze-a69e9.cloudfunctions.net/authenticateMerchant';
 
